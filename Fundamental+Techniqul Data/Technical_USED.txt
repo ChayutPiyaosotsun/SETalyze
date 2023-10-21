@@ -1,0 +1,6 @@
+1)RSI
+2)MACD
+3)EMA 25
+4)EMA 50
+5)EMA 200
+6)Volume
