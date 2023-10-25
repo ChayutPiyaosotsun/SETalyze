@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from darts.dataprocessing.transformers import Scaler
 from darts import TimeSeries
 from darts.models import BlockRNNModel
@@ -23,7 +23,7 @@ def preprocess_data(data,split):
     past_covariate = data[RETAIN_COMPONENTS].apply(pd.to_numeric, errors='coerce').fillna(method='ffill').fillna(method='bfill')
     serie_ts = TimeSeries.from_dataframe(serie.to_frame())
     past_cov_ts = TimeSeries.from_dataframe(past_covariate)
-    scaler = MinMaxScaler(feature_range=(0.01, 1))
+    scaler = StandardScaler()
     scaler_dataset = Scaler(scaler)
     scaled_serie_ts = scaler_dataset.fit_transform(serie_ts)
     if split == 0:
