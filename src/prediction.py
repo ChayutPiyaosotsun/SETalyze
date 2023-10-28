@@ -4,23 +4,51 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from darts.dataprocessing.transformers import Scaler
 from darts import TimeSeries
-from darts.models import BlockRNNModel
+from darts.models import TransformerModel
 
 DATA_PATH = 'data/Fundamental+Techniqul Data/SET50_CLEAN_DATA_Version2/'
+NEWS_PATH = 'data/News/Updated_Group.csv'
 ID_PATH = 'data/Fundamental+Techniqul Data/ID_Name.csv'
 RESULT_PATH = 'result/Prediction.csv'
 FOCUS_COMPONENT = 'Close'
 RETAIN_COMPONENTS = ["Open", "High", "Low", "PE", "PBV", "T_EPS", "FSCORE", "Vol",
                            "Buy Vol", "Sell Vol", "ATO/ATC", "EMA25", "EMA50", "EMA200", "MACD", "RSI"]
-MODEL = BlockRNNModel(input_chunk_length= 5, output_chunk_length = 7, model='LSTM',n_epochs = 18,)
+MODEL = TransformerModel(input_chunk_length= 3, output_chunk_length = 7, n_epochs = 15,)
 MAX_SPLIT_SIZE = 60
 PREDICT_SIZE = 7
 
 
-def preprocess_data(data,split):
+def preprocess_data(data, data_df, news_df, split):
     data = data.dropna()
     serie = data[FOCUS_COMPONENT]
     past_covariate = data[RETAIN_COMPONENTS].apply(pd.to_numeric, errors='coerce').fillna(method='ffill').fillna(method='bfill')
+
+    # Assuming you've already read the datasets as provided
+    data_df.set_index('Date', inplace=True)
+    news_df.set_index('Date', inplace=True)
+
+    # Identify dates in news_df that are not in data_df
+    non_intersecting_dates = news_df.index.difference(data_df.index)
+
+    # Iterate through the non-intersecting dates
+    for date in non_intersecting_dates:
+        # Find the closest previous date in news_df that also exists in data_df
+        previous_dates = news_df.index[(news_df.index < date) & (news_df.index.isin(data_df.index))]
+        
+        if not previous_dates.empty:
+            nearest_prev_date = previous_dates[-1]
+            
+            # Accumulate values from the non-matching date to the closest previous date
+            for column in news_df.columns:
+                news_df.at[nearest_prev_date, column] += news_df.at[date, column]
+            
+            # Drop the non-matching date from news_df
+            news_df.drop(date, inplace=True)
+
+    # Filter news_df to only include dates present in data_df
+    updated_news_df = news_df[news_df.index.isin(data_df.index)]
+    past_covariate = past_covariate.join(updated_news_df.reset_index().drop(columns='Date'))
+
     serie_ts = TimeSeries.from_dataframe(serie.to_frame())
     past_cov_ts = TimeSeries.from_dataframe(past_covariate)
     scaler = StandardScaler()
@@ -85,15 +113,17 @@ def main():
             # Load the data
             stock_data = pd.read_csv(os.path.join(DATA_PATH, stock_file))
             id_name_map = pd.read_csv(ID_PATH)
+            # Read the datasets
+            data_df = pd.read_csv(os.path.join(DATA_PATH, stock_file), dayfirst=True, parse_dates=["Date"])
+            news_df = pd.read_csv(NEWS_PATH, dayfirst=True, parse_dates=["Date"])
 
             # Preprocess data
-            training_scaled, past_cov_ts, scaler_dataset = preprocess_data(stock_data, split)
+            training_scaled, past_cov_ts, scaler_dataset = preprocess_data(stock_data, data_df, news_df, split)
 
             # Predict
             predictions = predict_next_n_days(training_scaled, past_cov_ts, scaler_dataset)
 
             # Generate output
-            # Handle the date mapping for predictions
             # Handle the date mapping for predictions
             if split - PREDICT_SIZE <= 0:  # Modify this line to handle split == 0 as well
                 last_known_date = pd.to_datetime(stock_data['Date'].iloc[-1], dayfirst=True)
